@@ -399,7 +399,7 @@ def get_rotation_matrices_to_local_coordinates(
 
 def rotate_with_matrices(rotation_matrices: np.ndarray, positions: np.ndarray,
                          np_: NumpyInterface = np) -> np.ndarray:
-  return np_.einsum("bji,bi->bj", rotation_matrices, positions)
+  return np_.einsum("...ji,...i->...j", rotation_matrices, positions)
 
 
 def get_bipartite_graph_spatial_features(
