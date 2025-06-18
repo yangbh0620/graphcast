@@ -364,30 +364,27 @@ def get_rotation_matrices_to_local_coordinates(
 
   """
 
+  # Azimuthal angle we need to apply to move to zero longitude.
+  azimuthal_rotation = - reference_phi
+
+  # Polar angle we need to apply to move from "theta" to zero latitude.
+  polar_rotation = - reference_theta + np.pi/2
+
   if rotate_longitude and rotate_latitude:
-
-    # We first rotate around the z axis "minus the azimuthal angle", to get the
-    # point with zero longitude
-    azimuthal_rotation = - reference_phi
-
-    # One then we will do a polar rotation (which can be done along the y
-    # axis now that we are at longitude 0.), "minus the polar angle plus 2pi"
-    # to get the point with zero latitude.
-    polar_rotation = - reference_theta + np.pi/2
-
+    # We first rotate to zero longitude around the z axis, and then, when the
+    # point is at x=0 we can simply apply the polar rotation around the y axis.
     return transform_.Rotation.from_euler(
         "zy", np_.stack([azimuthal_rotation, polar_rotation],
                         axis=1)).as_matrix()
   elif rotate_longitude:
-    # Just like the previous case, but applying only the azimuthal rotation.
-    azimuthal_rotation = - reference_phi
-    return transform_.Rotation.from_euler("z", -reference_phi).as_matrix()
+    # Just like the previous case, but applying only the azimuthal rotation,
+    # leaving the latitude unchanged.
+    return transform_.Rotation.from_euler("z", azimuthal_rotation).as_matrix()
   elif rotate_latitude:
-    # Just like the first case, but after doing the polar rotation, undoing
-    # the azimuthal rotation.
-    azimuthal_rotation = - reference_phi
-    polar_rotation = - reference_theta + np.pi/2
-
+    # We want to apply the polar rotation only, but we don't know the rotation
+    # axis to apply a polar rotation. The simplest way to achieve this is to
+    # first rotate all the way to longitude 0, then apply the polar rotation
+    # arond the y axis, and then rotate back to the original longitude.
     return transform_.Rotation.from_euler(
         "zyz", np_.stack(
             [azimuthal_rotation, polar_rotation, -azimuthal_rotation]
