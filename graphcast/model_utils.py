@@ -28,6 +28,7 @@ def get_graph_spatial_features(
     add_node_latitude: bool,
     add_node_longitude: bool,
     add_relative_positions: bool,
+    edge_normalization_factor: Optional[float] = None,
     relative_longitude_local_coordinates: bool,
     relative_latitude_local_coordinates: bool,
     sine_cosine_encoding: bool = False,
@@ -53,6 +54,9 @@ def get_graph_spatial_features(
         `relative_longitude_local_coordinates` is also True, or if there is any
         bias on the relative edge sizes for different longitudes.
     add_relative_positions: Whether to relative positions in R3 to the edges.
+    edge_normalization_factor: Allows explicitly controlling edge normalization.
+        If None, defaults to max edge length. This supports using pre-trained
+        model weights with a different graph structure to what it was trained.
     relative_longitude_local_coordinates: If True, relative positions are
         computed in a local space where the receiver is at 0 longitude.
     relative_latitude_local_coordinates: If True, relative positions are
@@ -112,15 +116,16 @@ def get_graph_spatial_features(
     relative_edge_distances = np.linalg.norm(
         relative_position, axis=-1, keepdims=True)
 
-    # Normalize to the maximum edge distance. Note that we expect to always
-    # have an edge that goes in the opposite direction of any given edge
-    # so the distribution of relative positions should be symmetric around
-    # zero. So by scaling by the maximum length, we expect all relative
-    # positions to fall in the [-1., 1.] interval, and all relative distances
-    # to fall in the [0., 1.] interval.
-    max_edge_distance = relative_edge_distances.max()
-    edge_features.append(relative_edge_distances / max_edge_distance)
-    edge_features.append(relative_position / max_edge_distance)
+    if edge_normalization_factor is None:
+      # Normalize to the maximum edge distance. Note that we expect to always
+      # have an edge that goes in the opposite direction of any given edge
+      # so the distribution of relative positions should be symmetric around
+      # zero. So by scaling by the maximum length, we expect all relative
+      # positions to fall in the [-1., 1.] interval, and all relative distances
+      # to fall in the [0., 1.] interval.
+      edge_normalization_factor = relative_edge_distances.max()
+    edge_features.append(relative_edge_distances / edge_normalization_factor)
+    edge_features.append(relative_position / edge_normalization_factor)
 
   if not edge_features:
     edge_features = np.zeros([num_edges, 0], dtype=dtype)
@@ -200,6 +205,20 @@ def spherical_to_cartesian(
   return (np.cos(phi)*np.sin(theta),
           np.sin(phi)*np.sin(theta),
           np.cos(theta))
+
+
+def lat_lon_to_cartesian(
+    lat: np.ndarray, lon: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+  return spherical_to_cartesian(*lat_lon_deg_to_spherical(lat, lon))
+
+
+def cartesian_to_lat_lon(
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+  return spherical_to_lat_lon(*cartesian_to_spherical(x, y, z))
 
 
 def get_relative_position_in_receiver_local_coordinates(
