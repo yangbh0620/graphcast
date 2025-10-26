@@ -11,7 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Support for wrapping a general Predictor to act as a Denoiser."""
+"""Support for wrapping a general Predictor to act as a Denoiser.
+
+This version adds a lightweight observation-conditioning pathway:
+- ObsEncoderMLP encodes sparse station-like observations (batch,K,V) + mask
+  into a global conditioning vector (batch,d).
+- The encoded vector is attached to `inputs` as `obs_conditioning`, which is
+  consumed via the existing `use_norm_conditioning=True` pathway in the
+  GNNs/Transformers (together with `noise_level_encodings`).
+"""
 
 import dataclasses
 from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
@@ -95,6 +103,40 @@ class FourierFeaturesMLP(hk.Module):
         values, self._base_period, self._num_frequencies)
 
     return self._mlp(features)
+
+
+# -------------------- NEW: Observation encoder --------------------
+
+class ObsEncoderMLP(hk.Module):
+  """Encode sparse station obs (batch,K,V) + mask -> (batch, d)."""
+
+  def __init__(self, d_model: int = 128, name: Optional[str] = None):
+    super().__init__(name=name or "ObsEncoderMLP")
+    # Lightweight MLP; adjust sizes if needed.
+    self._mlp = hk.nets.MLP([256, 256, d_model], activate_final=False)
+
+  def __call__(self, obs_feats: jnp.ndarray, obs_mask: jnp.ndarray) -> jnp.ndarray:
+    """
+    Args:
+      obs_feats: (batch, K, V) float32
+      obs_mask:  (batch, K, V) float32, 1=valid, 0=missing
+    Returns:
+      (batch, d_model) global latent
+    """
+    chex.assert_rank(obs_feats, 3)
+    chex.assert_equal_shape([obs_feats, obs_mask])
+
+    # Concatenate mask allowing the MLP to be aware of missingness.
+    x = jnp.concatenate([obs_feats, obs_mask], axis=-1)  # (B,K,2V)
+    # Per-station encoding
+    h = self._mlp(x)                                     # (B,K,d)
+    # Masked mean pooling across K
+    # Count valid per-sample; avoid divide-by-zero
+    valid_per_station = jnp.sum(obs_mask, axis=-1, keepdims=True)  # (B,K,1)
+    valid_any = jnp.sum((valid_per_station > 0).astype(h.dtype), axis=1)  # (B,1)
+    valid_any = jnp.clip(valid_any, 1.0, None)
+    h_mean = jnp.sum(h, axis=1) / valid_any  # (B,d)
+    return h_mean
 
 
 @chex.dataclass(frozen=True, eq=True)
@@ -203,6 +245,11 @@ class Denoiser(base.Denoiser):
   additional forcings (since they are also per-target-timestep data that the
   predictor needs to condition on) with the same names as the original target
   variables.
+
+  (Extended) Additionally, this version can accept sparse observations
+  (obs_feats, obs_mask) per-batch, encode them into a global vector, and attach
+  it to inputs as 'obs_conditioning' so it is consumed through the same
+  global norm-conditioning pathway as the noise level encodings.
   """
 
   def __init__(
@@ -218,12 +265,18 @@ class Denoiser(base.Denoiser):
       noise_encoder_config = NoiseEncoderConfig()
     self._noise_level_encoder = FourierFeaturesMLP(**noise_encoder_config)
 
+    # NEW: observation encoder (global conditioning vector)
+    self._obs_encoder = ObsEncoderMLP(d_model=128)
+
   def __call__(
       self,
       inputs: xarray.Dataset,
       noisy_targets: xarray.Dataset,
       noise_levels: xarray.DataArray,
       forcings: Optional[xarray.Dataset] = None,
+      # NEW: optional sparse observations (batch,K,V)
+      obs_feats: Optional[jnp.ndarray] = None,
+      obs_mask: Optional[jnp.ndarray] = None,
       **kwargs) -> xarray.Dataset:
     if forcings is None: forcings = xarray.Dataset()
     forcings = forcings.assign(noisy_targets)
@@ -237,6 +290,26 @@ class Denoiser(base.Denoiser):
         ("batch", "noise_level_encoding_channels"), noise_level_encodings
     )
     inputs = inputs.assign(noise_level_encodings=noise_level_encodings)
+
+    # NEW: observation-conditioning (optional)
+    if (obs_feats is not None) and (obs_mask is not None):
+      # Accept numpy/xarray/jax arrays; convert to jnp
+      obs_feats_jnp = xarray_jax.unwrap_data(obs_feats) if hasattr(obs_feats, "data") else jnp.asarray(obs_feats)
+      obs_mask_jnp  = xarray_jax.unwrap_data(obs_mask)  if hasattr(obs_mask, "data")  else jnp.asarray(obs_mask)
+      # Encode to (batch, d)
+      obs_latent = self._obs_encoder(obs_feats_jnp.astype(jnp.float32),
+                                     obs_mask_jnp.astype(jnp.float32))
+      obs_conditioning = xarray_jax.Variable(
+          ("batch", "obs_conditioning_channels"), obs_latent
+      )
+      inputs = inputs.assign(obs_conditioning=obs_conditioning)
+
+      # Fallback safeguard: make sure predictor consumes this as norm conditioning.
+      if ("obs_conditioning"
+          not in self._predictor._norm_conditioning_features):
+        self._predictor._norm_conditioning_features = tuple(
+            list(self._predictor._norm_conditioning_features) + ["obs_conditioning"]
+        )
 
     return self._predictor(
         inputs=inputs,
