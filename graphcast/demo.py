@@ -46,14 +46,14 @@ def main():
         rmse = np.sqrt(((preds[t] - target) ** 2).mean())
         rmses.append(rmse)
 
-    # 把结果存成文本，方便你交作业
+    # store as txt
     txt_path = OUTDIR / "mini_rollout_rmse.txt"
     with open(txt_path, "w") as f:
         for i, v in enumerate(rmses):
             f.write(f"step {i}: {v:.6f}\n")
     print(f"[OK] wrote RMSE curve to {txt_path}")
 
-    # 把原始数据也存起来，证明你跑过
+    # store as CSV too
     np.save(OUTDIR / "mini_rollout_preds.npy", preds)
     np.save(OUTDIR / "mini_rollout_truth.npy", truth)
     print("[OK] saved numpy arrays to outputs/")
