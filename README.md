@@ -1,3 +1,84 @@
+# Enhancements Added in This Fork
+This section documents new features implemented on top of the official Google DeepMind GraphCast / GenCast codebase.
+
+This fork introduces a complete Probabilistic Extreme Warm Event Evaluation Framework for GenCast Mini, enabling analysis that is not included in the official DeepMind repository or paper.
+
+All newly added functionality is available in: 
+
+[GenCast_Mini_Demo_final.ipynb]
+
+# New Features
+1.  Threshold-Based Extreme Warm Event Detection 
+* Implements binary event labeling for T2m > 303K
+* Applied to both ERA5 ground truth and GenCast predictions
+* Turns continuous meteorological variables into categorical rare events
+* Enables rigorous verification of climate extremes
+2. Ensemble-Based Probability Forecasting
+* Converts GenCast ensemble outputs into probabilistic predictions
+* Probability = fraction of ensemble members exceeding the threshold
+* Fully compatible with operational ensemble forecasting workflows
+* Not available in the official implementation
+3. Global Brier Score for Extreme Events
+* Computes Brier Score for probability forecasts globally
+* Provides objective evaluation of rare severe-warm anomalies
+* Includes time-mean spatial Brier Score maps
+4. Climatology Baseline & Brier Skill Score
+* Implements climatology-frequency forecast as baseline
+* Computes:Climatology frequency,Model Brier Score,Brier Skill Score (BSS),Climatology Brier Score
+5. ROC Curve & AUROC
+* Computes ROC curve for event detection
+* Reports AUROC ≈ 0.93
+* Shows meaningful discrimination capability for rare extreme events
+6. Precision–Recall Curve & Average Precision
+* Computes PR curve for imbalanced classification
+* Reports AP ≈ 0.15, which is typical for rare climate extremes
+* Provides clearer insight into model performance under low event frequency
+7. Reliability Diagram
+* Plots calibration of probability forecasts
+* Includes perfect-reliability reference line
+* Reveals systematic biases in forecast probabilities
+
+# How To Use The New Modules
+1. Run the notebook until prediction tensors are produced
+2. Scroll to section:Extreme-event Probabilistic Evaluation
+3. Run all cells in sequence
+4. The following plots & metrics will be produced:
+* Brier Score & BSS
+* ROC Curve
+* Precision–Recall Curve
+* Reliability Diagram
+* Spatial Brier Score map
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Google DeepMind GraphCast and GenCast
 
 This package contains example code to run and train the weather models used in the research papers [GraphCast](https://www.science.org/doi/10.1126/science.adi2336) and [GenCast](https://arxiv.org/abs/2312.15796).
